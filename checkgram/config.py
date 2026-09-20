@@ -154,6 +154,8 @@ def _parse_step(raw: Any, index: int, default_timeout: int, workflow_path: str) 
         text = _non_empty_string(table, "text", f"{path}.text")
     if step_type == "send" and text is None:
         _fail(f"{path}.text", "is required for send steps")
+    if step_type == "click" and text is None:
+        _fail(f"{path}.text", "is required for click steps")
 
     next_target = None
     if "next" in table:
