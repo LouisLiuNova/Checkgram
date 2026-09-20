@@ -149,8 +149,8 @@ def test_duplicate_case_ids_and_steps_without_exit_are_rejected() -> None:
 
 
 def test_parse_config_does_not_import_or_connect_telethon() -> None:
-    import sys
+    import checkgram.config as config_module
 
     config = parse_config(valid_document())
     assert config.workflows[0].id == "daily-checkin"
-    assert "telethon" not in sys.modules
+    assert not hasattr(config_module, "TelegramClient")

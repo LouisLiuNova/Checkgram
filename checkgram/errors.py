@@ -8,3 +8,7 @@ class ConfigError(ValueError):
         self.path = path
         self.message = message
         super().__init__(f"{path}: {message}")
+
+
+class AuthError(RuntimeError):
+    """An authentication or session-storage error safe to show to an operator."""
