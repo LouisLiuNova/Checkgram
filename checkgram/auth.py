@@ -17,6 +17,7 @@ from telethon.sessions import StringSession
 
 from .config import AccountConfig
 from .errors import AuthError
+from .logging import register_secrets
 
 ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
@@ -62,11 +63,13 @@ class SessionStore:
             return None
         if not value:
             raise AuthError(f"session file is empty for account {account_id!r}")
+        register_secrets((value,))
         return value
 
     def write(self, account_id: str, session: str) -> Path:
         if not session:
             raise AuthError("refusing to save an empty Telegram session")
+        register_secrets((session,))
         path = self.path_for(account_id)
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary_path: Path | None = None

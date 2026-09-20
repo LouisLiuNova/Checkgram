@@ -11,6 +11,7 @@ from uuid import uuid4
 from .auth import ApiCredentials, SessionStore, connected_client
 from .config import AccountConfig, Config, WorkflowConfig
 from .locks import AccountLock
+from .logging import register_secrets
 from .scheduler import RoundResult, run_round
 from .telegram import TelethonGateway
 from .workflow import WorkflowOutcome, run_workflow
@@ -30,6 +31,7 @@ async def run_configured_attempt(
 ) -> WorkflowOutcome:
     """Run one authenticated workflow attempt within an existing deadline."""
     del attempt_number
+    register_secrets((credentials.api_hash,))
     account = account_for(config, workflow)
     store = SessionStore(data_dir)
     attempt_id = uuid4().hex
@@ -40,6 +42,7 @@ async def run_configured_attempt(
             attempt_id=attempt_id,
             attempt_started_at=datetime.now(UTC),
             deadline=deadline,
+            account_alias=account.id,
         )
 
 

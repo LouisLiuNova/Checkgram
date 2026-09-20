@@ -12,6 +12,7 @@ from .auth import SessionStore, authenticate_account, load_api_credentials
 from .config import load_config
 from .errors import AuthError, ConfigError
 from .locks import AccountLock, LockBusyError, ServiceLock
+from .logging import configure_logging
 from .runtime import run_configured_round
 from .scheduler import SchedulerError, serve
 
@@ -70,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
             if account is None:
                 raise AuthError(f"unknown account {args.account_id!r}")
             credentials = load_api_credentials()
+            configure_logging((credentials.api_hash,))
             with AccountLock(args.data_dir, account.id):
                 path = asyncio.run(
                     authenticate_account(account, credentials, SessionStore(args.data_dir))
@@ -83,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             config = load_config(args.config)
             credentials = load_api_credentials()
+            configure_logging((credentials.api_hash,))
             if args.command == "run":
                 workflow = next(
                     (item for item in config.workflows if item.id == args.workflow_id), None

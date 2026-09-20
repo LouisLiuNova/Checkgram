@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Literal, Protocol, cast
 
 from .config import CaseConfig, StepConfig, WorkflowConfig
+from .logging import log_event
 
 ButtonKind = Literal[
     "callback",
@@ -97,6 +98,7 @@ async def run_workflow(
     attempt_id: str,
     attempt_started_at: datetime | None = None,
     deadline: float | None = None,
+    account_alias: str = "-",
 ) -> WorkflowOutcome:
     """Execute one attempt and stop at a terminal target or the supplied deadline."""
     started_at = attempt_started_at or datetime.now(UTC)
@@ -105,6 +107,15 @@ async def run_workflow(
     last_reply: Reply | None = None
     while True:
         step = workflow.steps[step_indexes[current_step_id]]
+        log_event(
+            workflow=workflow.id,
+            account=account_alias,
+            attempt=attempt_id,
+            step=step.id,
+            action=step.type,
+            result="started",
+            message="step started",
+        )
         try:
             if deadline is not None and monotonic() >= deadline:
                 raise StepFailure("budget_exhausted")
@@ -118,6 +129,15 @@ async def run_workflow(
                 deadline,
             )
         except StepFailure as exc:
+            log_event(
+                workflow=workflow.id,
+                account=account_alias,
+                attempt=attempt_id,
+                step=step.id,
+                action=step.type,
+                result=exc.reason,
+                message="step failed",
+            )
             return WorkflowOutcome(
                 status="failure",
                 reason=exc.reason,
@@ -125,6 +145,15 @@ async def run_workflow(
                 event_kind=exc.event_kind,
             )
         if next_target in {"success", "failure"}:
+            log_event(
+                workflow=workflow.id,
+                account=account_alias,
+                attempt=attempt_id,
+                step=step.id,
+                action=step.type,
+                result=next_target,
+                message="workflow finished",
+            )
             return WorkflowOutcome(
                 status=cast(Literal["success", "failure"], next_target),
                 reason=next_target,
