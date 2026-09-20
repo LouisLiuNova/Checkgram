@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from checkgram.config import Config, load_config, parse_config
+from checkgram.errors import ConfigError
+
+EXAMPLE = Path(__file__).parents[1] / "examples" / "config.example.toml"
+
+
+def valid_document() -> dict[str, Any]:
+    return {
+        "app": {"timezone": "Asia/Shanghai", "step_timeout": 30},
+        "accounts": [{"id": "primary"}],
+        "workflows": [
+            {
+                "id": "daily-checkin",
+                "account": "primary",
+                "target": "@target_bot",
+                "times": ["08:00"],
+                "steps": [
+                    {"id": "start", "type": "send", "text": "/start", "next": "result"},
+                    {
+                        "id": "result",
+                        "type": "wait",
+                        "cases": [
+                            {
+                                "id": "ok",
+                                "match": "contains",
+                                "value": "success",
+                                "next": "success",
+                            }
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def assert_invalid(document: dict[str, Any], path: str) -> None:
+    with pytest.raises(ConfigError, match=re.escape(path)):
+        parse_config(document)
+
+
+def test_example_config_is_valid() -> None:
+    config = load_config(EXAMPLE)
+    assert isinstance(config, Config)
+    assert config.app.timezone == "Asia/Shanghai"
+    assert config.workflows[0].steps[1].cases[0].next == "success"
+
+
+def test_config_is_typed_and_step_timeout_defaults_from_app() -> None:
+    config = parse_config(valid_document())
+    assert config.accounts[0].id == "primary"
+    assert config.workflows[0].times[0].hour == 8
+    assert config.workflows[0].steps[0].timeout == 30
+
+
+@pytest.mark.parametrize(
+    ("mutation", "path"),
+    [
+        (lambda data: data["accounts"].append({"id": "primary"}), "accounts"),
+        (lambda data: data["workflows"].append(deepcopy(data["workflows"][0])), "workflows"),
+        (lambda data: data["workflows"][0].update(account="missing"), "workflows[0].account"),
+        (lambda data: data["app"].update(timezone="Mars/Colony"), "app.timezone"),
+        (lambda data: data["workflows"][0].update(times=["8:00"]), "workflows[0].times[0]"),
+        (lambda data: data["app"].update(step_timeout=0), "app.step_timeout"),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(type="unknown"),
+            "steps[0].type",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(next="missing"),
+            "workflows[0].steps[0].next",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(next="start"),
+            "workflows[0].steps[0].next",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][1]["cases"][0].update(value=""),
+            "workflows[0].steps[1].cases[0].value",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][1].update(cases=[]),
+            "workflows[0].steps[1].cases",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][1]["cases"][0].update(match="regex"),
+            "workflows[0].steps[1].cases[0].match",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][1]["cases"][0].update(next="result"),
+            "workflows[0].steps[1].cases[0].next",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(text=""),
+            "workflows[0].steps[0].text",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(next=None),
+            "workflows[0].steps[0].next",
+        ),
+    ],
+)
+def test_invalid_documents_are_rejected(
+    mutation: Callable[[dict[str, Any]], None], path: str
+) -> None:
+    document = valid_document()
+    mutation(document)
+    assert_invalid(document, path)
+
+
+def test_duplicate_step_and_case_ids_are_rejected() -> None:
+    document = valid_document()
+    document["workflows"][0]["steps"].append(
+        {
+            "id": "result",
+            "type": "wait",
+            "cases": [{"id": "ok", "match": "exact", "value": "x", "next": "success"}],
+        }
+    )
+    assert_invalid(document, "workflows[0].steps")
+
+
+def test_empty_workflow_and_empty_cases_are_rejected() -> None:
+    document = valid_document()
+    document["workflows"][0]["steps"] = []
+    assert_invalid(document, "workflows[0].steps")
+
+
+def test_duplicate_case_ids_and_steps_without_exit_are_rejected() -> None:
+    duplicate_cases = valid_document()
+    duplicate_cases["workflows"][0]["steps"][1]["cases"].append(
+        {"id": "ok", "match": "exact", "value": "again", "next": "success"}
+    )
+    assert_invalid(duplicate_cases, "workflows[0].steps[1].cases")
+
+    no_exit = valid_document()
+    no_exit["workflows"][0]["steps"][0].pop("next")
+    assert_invalid(no_exit, "workflows[0].steps[0]")
+
+
+def test_parse_config_does_not_import_or_connect_telethon() -> None:
+    import sys
+
+    config = parse_config(valid_document())
+    assert config.workflows[0].id == "daily-checkin"
+    assert "telethon" not in sys.modules

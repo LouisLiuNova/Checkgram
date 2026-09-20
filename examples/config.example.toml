@@ -1,0 +1,42 @@
+# Copy this file to config.toml and edit the values for your own accounts.
+
+[app]
+timezone = "Asia/Shanghai"
+step_timeout = 30
+
+[[accounts]]
+id = "primary"
+
+[[workflows]]
+id = "daily-checkin"
+account = "primary"
+target = "@target_bot"
+times = ["08:00"]
+
+[[workflows.steps]]
+id = "start"
+type = "send"
+text = "/start"
+next = "result"
+
+[[workflows.steps]]
+id = "result"
+type = "wait"
+
+[[workflows.steps.cases]]
+id = "success"
+match = "contains"
+value = "签到成功"
+next = "success"
+
+[[workflows.steps.cases]]
+id = "already-done"
+match = "contains"
+value = "今日已签到"
+next = "success"
+
+[[workflows.steps.cases]]
+id = "rejected"
+match = "contains"
+value = "失败"
+next = "failure"
