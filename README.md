@@ -84,7 +84,11 @@ Compose 服务不暴露端口。容器以非 root 用户运行，根文件系统
 
 ## 配置参考
 
-仓库根目录的 [`config.toml`](config.toml) 是最小示例，请按自己的账号和目标 Bot 修改。
+仓库根目录的 [`config.toml`](config.toml) 是可直接运行的最小示例。配置文件只描述账号别名、目标 Bot、执行时间和工作流步骤；Telegram `api_id`、`api_hash`、手机号、验证码、2FA 密码和 StringSession 都不写入此文件。
+
+### 完整示例
+
+下面的示例展示了一个“发送命令 → 等待回复 → 必要时点击按钮 → 根据结果结束”的工作流。复制后至少要修改 `target`、`times`、发送文本、按钮文字和回复匹配值。
 
 ```toml
 [app]
@@ -94,11 +98,71 @@ step_timeout = 30
 [[accounts]]
 id = "primary"
 
+[[accounts]]
+id = "secondary"
+
 [[workflows]]
 id = "daily-checkin"
 account = "primary"
 target = "@target_bot"
-times = ["08:00"]
+times = ["08:00", "20:00"]
+
+[[workflows.steps]]
+id = "start"
+type = "send"
+text = "/start"
+next = "result"
+
+[[workflows.steps]]
+id = "result"
+type = "wait"
+timeout = 45
+
+[[workflows.steps.cases]]
+id = "success"
+match = "contains"
+value = "签到成功"
+next = "success"
+
+[[workflows.steps.cases]]
+id = "already-done"
+match = "contains"
+value = "今日已签到"
+next = "success"
+
+[[workflows.steps.cases]]
+id = "need-confirm"
+match = "contains"
+value = "请确认"
+next = "confirm"
+
+[[workflows.steps]]
+id = "confirm"
+type = "click"
+text = "确认"
+timeout = 30
+
+[[workflows.steps.cases]]
+id = "confirmed"
+match = "contains"
+value = "签到成功"
+next = "success"
+
+[[workflows.steps.cases]]
+id = "rejected"
+match = "contains"
+value = "失败"
+next = "failure"
+```
+
+`[[accounts]]` 可以继续增加，另一个账号可以复用相同的步骤定义，只需增加一个 workflow 并修改 `account`：
+
+```toml
+[[workflows]]
+id = "secondary-checkin"
+account = "secondary"
+target = "@target_bot"
+times = ["09:00"]
 
 [[workflows.steps]]
 id = "start"
@@ -111,21 +175,178 @@ id = "result"
 type = "wait"
 
 [[workflows.steps.cases]]
+id = "ok"
+match = "contains"
+value = "签到成功"
+next = "success"
+```
+
+### 配置结构
+
+TOML 中的 `[[...]]` 表示数组中的一项，因此每个账号、工作流、步骤和条件都要重复对应的表头。所有字段均区分字符串和数字：例如 `step_timeout = 30` 正确，而 `step_timeout = "30"` 会被拒绝。
+
+| 路径 | 必填字段 | 说明 |
+| --- | --- | --- |
+| `[app]` | `timezone`、`step_timeout` | 全局运行设置。`timezone` 使用 IANA 时区；`step_timeout` 是未单独设置步骤超时时使用的默认秒数。 |
+| `[[accounts]]` | `id` | 账号在配置中的唯一别名，例如 `primary`。它不是手机号，也不是 Telegram 用户名；认证后对应 `/data/<id>.session`。 |
+| `[[workflows]]` | `id`、`account`、`target`、`times`、`steps` | 一个可独立调度或手动执行的工作流。`account` 必须引用已有账号 `id`；`target` 通常填写目标 Bot 的公开用户名。 |
+| `[[workflows.steps]]` | `id`、`type` | 按文件顺序执行的步骤。`id` 在当前 workflow 内唯一，分支只能跳到后面的步骤。 |
+| `[[workflows.steps.cases]]` | `id`、`match`、`value`、`next` | `wait` 或 `click` 收到事件后的匹配分支。`id` 只需在当前步骤内唯一。 |
+
+### `[app]` 全局设置
+
+- `timezone`：必填的 IANA 时区，例如 `Asia/Shanghai`、`Asia/Tokyo` 或 `UTC`。它同时决定 `times` 的解释方式；不要填写 `CST`、`GMT+8` 这类不明确的缩写。
+- `step_timeout`：必填正整数，单位为秒。每个步骤都可以用自己的 `timeout` 覆盖它。这个值只控制单步等待或操作的最长时间，不会改变每轮固定 1 小时的总预算。
+
+调度器只等待严格晚于当前时刻的下一次时间。例如当前本地时间已经是 `08:00`，`times = ["08:00"]` 会安排到第二天 `08:00`，不会立即补跑。进程重启也不会补执行已经错过的时间。
+
+### `[[accounts]]` 账号声明
+
+```toml
+[[accounts]]
+id = "primary"
+```
+
+- `id` 是本地配置别名，必须非空，并且在所有 `accounts` 项中唯一。
+- 认证时使用这个值：`checkgram auth primary`。
+- 会话文件由程序保存到 `--data-dir` 下的 `<id>.session`，因此不要把手机号、StringSession 或其他登录信息填到 `config.toml`。
+
+### `[[workflows]]` 工作流设置
+
+```toml
+[[workflows]]
+id = "daily-checkin"
+account = "primary"
+target = "@target_bot"
+times = ["08:00", "20:00"]
+```
+
+- `id`：工作流唯一标识。手动执行时使用 `checkgram run <id>`。
+- `account`：要使用的账号 `id`，必须已经在 `[[accounts]]` 中声明。
+- `target`：Telegram 目标，通常是公开 Bot 用户名，例如 `@target_bot`。当前实现使用用户账号连接目标，不支持把 BotFather token 或手机号写在这里。
+- `times`：至少一个 `HH:MM` 字符串，可以填写多个时间；必须是两位小时和两位分钟，例如 `"08:00"`，不能写 `"8:00"`。重复时间没有实际意义，程序会按时间顺序处理。
+- `steps`：至少一个步骤，按 TOML 文件中的出现顺序执行。每个 workflow 的第一步是入口。
+
+### `[[workflows.steps]]` 步骤
+
+每个步骤都需要唯一的 `id` 和 `type`。支持三种类型：
+
+| `type` | 用途 | 字段要求和行为 |
+| --- | --- | --- |
+| `send` | 向 `target` 发送文本 | 必须有 `text` 和 `next`，不能有 `cases`。发送后立即进入 `next`；返回的消息可供后续 `click` 使用。 |
+| `wait` | 等待目标产生回复或事件 | 必须有至少一个 `cases`，不需要 `text`。会匹配新的消息、编辑后的消息或 callback answer。 |
+| `click` | 点击上一步回复中的按钮 | 必须有 `text` 和至少一个 `cases`。`text` 必须与上一条回复中的一个可见按钮文字完全相同；点击后继续等待并匹配 `cases`。 |
+
+通用字段：
+
+- `timeout`：可选正整数，单位为秒，覆盖 `[app].step_timeout`。例如 `timeout = 45` 表示该步骤最多等待或执行 45 秒；实际仍受当前轮剩余预算限制。
+- `next`：`send` 使用的后继步骤。也可以指向终态 `success` 或 `failure`。对于 `wait` 和 `click`，后继目标写在各自的 `cases.next` 中。
+- `text`：`send` 是要发送的文本；`click` 是要点击的按钮可见文字。点击匹配区分整个按钮文字，不是模糊包含匹配。
+
+步骤的跳转规则是有意限制的：目标只能是后面定义的步骤、`success` 或 `failure`。不允许跳回前面的步骤，也不允许形成循环；每一步都必须能通过 `next` 或某个 case 离开。这样可以在离线校验时发现拼写错误和无法结束的流程。
+
+建议以 `send` 作为工作流第一步，让 Checkgram 先建立目标会话并获得后续 `click` 所需的回复上下文。
+
+### `[[workflows.steps.cases]]` 条件分支
+
+```toml
+[[workflows.steps.cases]]
 id = "success"
 match = "contains"
 value = "签到成功"
 next = "success"
 ```
 
-规则如下：
+- `id`：当前步骤内的条件名称，只用于识别和日志，不参与匹配。
+- `match`：只能是 `exact` 或 `contains`。
+  - `exact`：收到的文本与 `value` 完全相同。
+  - `contains`：收到的文本包含 `value`。
+- `value`：非空匹配文本。匹配前会去除实际文本和配置值的首尾空白，并忽略大小写；不会执行正则表达式匹配。
+- `next`：匹配成功后的后继步骤，或终态 `success` / `failure`。
 
-- `app.timezone` 必须是 IANA 时区，`times` 必须严格使用 `HH:MM`；
-- 所有 account、workflow、step 和同一步骤内的 case ID 必须唯一；workflow 必须引用已定义的 account；
-- `step_timeout` 和步骤自己的 `timeout` 必须是正整数，单位为秒；
-- 步骤类型只有 `send`、`wait`、`click`；`send` 要求 `text` 和 `next`，`click` 的 `text` 是上一条回复中要精确点击的可见文字；
-- `wait`/`click` 至少要有一个 case。case 的 `match` 只有 `exact` 和 `contains`，匹配默认忽略大小写并去除首尾空白；
-- 分支只能跳到后续步骤，或终态 `success`/`failure`；未知目标、循环、空条件和无出口都会使 `validate` 失败；
-- `click` 只接受 callback 和普通文字 reply keyboard，URL、WebApp、支付、验证码、手机号和位置分享按钮会被拒绝。
+多个 case 按文件顺序依次检查，匹配到第一个就跳转。因此更具体的条件应放在更宽泛的 `contains` 条件前面。例如“签到失败”应放在只匹配“签到”的条件前面。`click` 步骤收到 callback answer 时，待匹配文本是 callback data；收到普通消息时，待匹配文本是消息正文。
+
+### 按操作类型填写
+
+只发送后立即结束：
+
+```toml
+[[workflows.steps]]
+id = "send-command"
+type = "send"
+text = "/start"
+next = "success"
+```
+
+等待成功或失败回复：
+
+```toml
+[[workflows.steps]]
+id = "result"
+type = "wait"
+timeout = 45
+
+[[workflows.steps.cases]]
+id = "ok"
+match = "contains"
+value = "成功"
+next = "success"
+
+[[workflows.steps.cases]]
+id = "failed"
+match = "contains"
+value = "失败"
+next = "failure"
+```
+
+等待回复后点击按钮，再等待点击结果：
+
+```toml
+[[workflows.steps]]
+id = "question"
+type = "wait"
+
+[[workflows.steps.cases]]
+id = "has-confirm-button"
+match = "contains"
+value = "请选择"
+next = "confirm"
+
+[[workflows.steps]]
+id = "confirm"
+type = "click"
+text = "确认"
+
+[[workflows.steps.cases]]
+id = "done"
+match = "contains"
+value = "完成"
+next = "success"
+```
+
+`click` 只接受 callback button 和普通文字 reply keyboard。URL、WebApp、支付、验证码、请求手机号和请求位置按钮会被拒绝；按钮文字缺失或同一回复中出现多个同名按钮也会失败。
+
+### 修改和校验流程
+
+1. 复制或编辑仓库根目录的 `config.toml`，先修改账号 `id`、workflow 的 `account`、`target`、`times` 和步骤内容。
+2. 运行离线校验：
+
+   ```bash
+   uv run checkgram validate --config config.toml
+   ```
+
+   `validate` 不读取 Telegram 凭据，也不会连接 Telegram；它会检查 TOML 语法、必填字段、类型、唯一 ID、账号引用、时间格式和工作流跳转。
+3. 为每个账号分别认证，例如：
+
+   ```bash
+   uv run checkgram auth primary --config config.toml --data-dir ./data
+   ```
+
+4. 先用 `run WORKFLOW_ID` 手动执行一次，确认目标、按钮文字和回复匹配值正确，再启动 `serve`。
+
+配置在进程启动时读取一次。修改 `config.toml` 后，必须重新执行 `run` 或重启 `serve`；运行中的进程不会自动重新加载。
+
+`validate` 失败时，错误会带出配置路径，例如 `workflows[0].steps[1].cases[0].next`，可以根据路径定位对应的表项。常见错误包括：把 `08:00` 写成 `8:00`、`account` 拼写与账号 `id` 不一致、把步骤跳转到前面的步骤、给 `wait`/`click` 忘记添加 case，或把 `send` 步骤错误地写成带 `cases`。
 
 ## 命令参考
 
