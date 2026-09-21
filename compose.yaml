@@ -1,0 +1,36 @@
+services:
+  checkgram:
+    build:
+      context: .
+    image: ghcr.io/louisliunova/checkgram:local
+    command: ["serve", "--config", "/app/config.toml", "--data-dir", "/data"]
+    environment:
+      - TELEGRAM_API_ID
+      - TELEGRAM_API_HASH
+    volumes:
+      - type: bind
+        source: ./config.toml
+        target: /app/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: checkgram-data
+        target: /data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  checkgram-data:

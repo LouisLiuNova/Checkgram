@@ -1,0 +1,44 @@
+[project]
+name = "checkgram"
+version = "0.1.0"
+description = "A lightweight, self-hosted Telegram automation runner."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "loguru>=0.7,<1",
+    "telethon>=1.45,<2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[project.scripts]
+checkgram = "checkgram.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15,<2",
+    "pytest>=8.3,<9",
+    "ruff>=0.9,<1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+ignore_missing_imports = true
+python_version = "3.13"
+strict = true
+files = ["checkgram", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
