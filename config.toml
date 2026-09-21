@@ -1,4 +1,4 @@
-# Copy this file to config.toml and edit the values for your own accounts.
+# Edit this file for your own accounts and workflows.
 
 [app]
 timezone = "Asia/Shanghai"

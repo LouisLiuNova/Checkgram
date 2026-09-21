@@ -3,15 +3,17 @@ services:
     build:
       context: .
     image: ghcr.io/louisliunova/checkgram:local
-    command: ["serve", "--config", "/config/config.toml", "--data-dir", "/data"]
+    command: ["serve", "--config", "/app/config.toml", "--data-dir", "/data"]
     environment:
       - TELEGRAM_API_ID
       - TELEGRAM_API_HASH
     volumes:
       - type: bind
         source: ./config.toml
-        target: /config/config.toml
+        target: /app/config.toml
         read_only: true
+        bind:
+          create_host_path: false
       - type: volume
         source: checkgram-data
         target: /data

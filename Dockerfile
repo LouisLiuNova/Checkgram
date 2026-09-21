@@ -34,4 +34,4 @@ USER 10001:10001
 WORKDIR /app
 
 ENTRYPOINT ["checkgram"]
-CMD ["serve", "--config", "/config/config.toml", "--data-dir", "/data"]
+CMD ["serve", "--config", "/app/config.toml", "--data-dir", "/data"]

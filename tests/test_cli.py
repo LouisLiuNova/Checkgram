@@ -6,7 +6,7 @@ from checkgram.cli import main
 
 
 def test_validate_command_accepts_example() -> None:
-    example = Path(__file__).parents[1] / "examples" / "config.example.toml"
+    example = Path(__file__).parents[1] / "config.toml"
     assert main(["validate", "--config", str(example)]) == 0
 
 

@@ -53,8 +53,9 @@ TELEGRAM_API_HASH=replace_with_api_hash
 
 ```bash
 uv sync --locked --dev
-cp examples/config.example.toml config.toml
 cp .env.example .env
+
+# Edit the root config.toml with your own account and workflow values.
 
 uv run checkgram validate --config config.toml
 uv run checkgram auth primary --config config.toml --data-dir ./data
@@ -62,13 +63,14 @@ uv run checkgram run daily-checkin --config config.toml --data-dir ./data
 uv run checkgram serve --config config.toml --data-dir ./data
 ```
 
-`config.toml`、`.env`、`data/` 和会话文件已被 `.gitignore` 排除，不能提交真实凭据或会话内容。
+根目录的 `config.toml` 只包含非敏感的账号和工作流配置；`.env`、`data/` 和会话文件已被 `.gitignore` 排除，不能提交 API 凭据或会话内容。
 
 ### Docker Compose
 
-在项目目录准备 `config.toml` 和 `.env` 后：
+在项目根目录编辑仓库提供的 `config.toml`，并准备 `.env` 后：
 
 ```bash
+docker compose run --rm checkgram validate
 docker compose run --rm checkgram auth primary
 docker compose run --rm checkgram run daily-checkin
 docker compose up -d
@@ -76,11 +78,13 @@ docker compose logs -f checkgram
 docker compose down
 ```
 
+宿主机根目录的 `config.toml` 会挂载到容器工作目录 `/app/config.toml`，与 CLI 默认配置路径一致，因此一次性命令即使命令覆盖服务默认的 `serve` 命令，也会继续使用该配置。如果宿主机缺少 `config.toml`，Compose 会直接报错；请先编辑仓库根目录提供的示例配置。
+
 Compose 服务不暴露端口。容器以非 root 用户运行，根文件系统只读，仅命名卷 `/data` 可写；容器重建或重启不会删除该卷中的会话。默认内存上限为 256 MB，Docker 负责日志轮转。
 
 ## 配置参考
 
-从 [`examples/config.example.toml`](examples/config.example.toml) 复制最小示例，然后按自己的账号和目标 Bot 修改。
+仓库根目录的 [`config.toml`](config.toml) 是最小示例，请按自己的账号和目标 Bot 修改。
 
 ```toml
 [app]

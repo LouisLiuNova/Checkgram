@@ -11,7 +11,7 @@ import pytest
 from checkgram.config import Config, load_config, parse_config
 from checkgram.errors import ConfigError
 
-EXAMPLE = Path(__file__).parents[1] / "examples" / "config.example.toml"
+EXAMPLE = Path(__file__).parents[1] / "config.toml"
 
 
 def valid_document() -> dict[str, Any]:
