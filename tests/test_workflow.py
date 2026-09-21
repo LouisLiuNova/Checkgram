@@ -34,7 +34,6 @@ class FakeGateway:
 def workflow_document(*steps: dict[str, object]) -> dict[str, object]:
     return {
         "app": {"timezone": "Asia/Shanghai", "step_timeout": 1},
-        "accounts": [{"id": "primary"}],
         "workflows": [
             {
                 "id": "test",

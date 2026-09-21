@@ -7,7 +7,7 @@ Checkgram 是一个自托管、轻量、无 Web 服务的 Telegram 多账号签�
 - 全局串行执行，不并行操作账号或工作流；
 - 按本地时区定时，支持 `send`、`wait`、`click`、条件匹配和前向分支；
 - 每轮固定 1 小时预算，失败后按 2/4/8/16 分钟退避；
-- TOML 配置、离线校验、独立 StringSession、Docker Compose 部署；
+- TOML 工作流配置、离线校验、独立 StringSession、Docker Compose 部署；
 - Loguru 彩色日志、统一敏感信息脱敏和 GHCR 发布流水线。
 
 明确不支持 Web UI、远程 API、数据库、Redis、任务队列、执行历史、补跑、并行工作流、浏览器自动化、CAPTCHA、WebApp、支付、验证码、手机号和位置分享按钮。
@@ -55,10 +55,11 @@ TELEGRAM_API_HASH=replace_with_api_hash
 uv sync --locked --dev
 cp .env.example .env
 
-# Edit the root config.toml with your own account and workflow values.
+# Edit the root config.toml with your workflow values.
 
 uv run checkgram validate --config config.toml
-uv run checkgram auth primary --config config.toml --data-dir ./data
+uv run checkgram auth primary --data-dir ./data
+uv run checkgram validate --config config.toml --data-dir ./data
 uv run checkgram run daily-checkin --config config.toml --data-dir ./data
 uv run checkgram serve --config config.toml --data-dir ./data
 ```
@@ -72,6 +73,7 @@ uv run checkgram serve --config config.toml --data-dir ./data
 ```bash
 docker compose run --rm checkgram validate
 docker compose run --rm checkgram auth primary
+docker compose run --rm checkgram validate --data-dir /data
 docker compose run --rm checkgram run daily-checkin
 docker compose up -d
 docker compose logs -f checkgram
@@ -94,12 +96,6 @@ Compose 服务不暴露端口。容器以非 root 用户运行，根文件系统
 [app]
 timezone = "Asia/Shanghai"
 step_timeout = 30
-
-[[accounts]]
-id = "primary"
-
-[[accounts]]
-id = "secondary"
 
 [[workflows]]
 id = "daily-checkin"
@@ -155,7 +151,7 @@ value = "失败"
 next = "failure"
 ```
 
-`[[accounts]]` 可以继续增加，另一个账号可以复用相同的步骤定义，只需增加一个 workflow 并修改 `account`：
+账号不写入配置。先通过 `auth ACCOUNT_ID` 创建每个本地账号，再增加 workflow 并修改 `account` 即可复用步骤定义：
 
 ```toml
 [[workflows]]
@@ -188,8 +184,7 @@ TOML 中的 `[[...]]` 表示数组中的一项，因此每个账号、工作流�
 | 路径 | 必填字段 | 说明 |
 | --- | --- | --- |
 | `[app]` | `timezone`、`step_timeout` | 全局运行设置。`timezone` 使用 IANA 时区；`step_timeout` 是未单独设置步骤超时时使用的默认秒数。 |
-| `[[accounts]]` | `id` | 账号在配置中的唯一别名，例如 `primary`。它不是手机号，也不是 Telegram 用户名；认证后对应 `/data/<id>.session`。 |
-| `[[workflows]]` | `id`、`account`、`target`、`times`、`steps` | 一个可独立调度或手动执行的工作流。`account` 必须引用已有账号 `id`；`target` 通常填写目标 Bot 的公开用户名。 |
+| `[[workflows]]` | `id`、`account`、`target`、`times`、`steps` | 一个可独立调度或手动执行的工作流。`account` 是本地账号 ID，必须使用安全的文件名字符；`target` 通常填写目标 Bot 的公开用户名。 |
 | `[[workflows.steps]]` | `id`、`type` | 按文件顺序执行的步骤。`id` 在当前 workflow 内唯一，分支只能跳到后面的步骤。 |
 | `[[workflows.steps.cases]]` | `id`、`match`、`value`、`next` | `wait` 或 `click` 收到事件后的匹配分支。`id` 只需在当前步骤内唯一。 |
 
@@ -200,15 +195,21 @@ TOML 中的 `[[...]]` 表示数组中的一项，因此每个账号、工作流�
 
 调度器只等待严格晚于当前时刻的下一次时间。例如当前本地时间已经是 `08:00`，`times = ["08:00"]` 会安排到第二天 `08:00`，不会立即补跑。进程重启也不会补执行已经错过的时间。
 
-### `[[accounts]]` 账号声明
+### 账号 ID 与认证
 
-```toml
-[[accounts]]
-id = "primary"
+账号 ID 不在 `config.toml` 中声明，而是在认证命令中创建：
+
+```bash
+uv run checkgram auth primary --data-dir ./data
+uv run checkgram auth secondary --data-dir ./data
 ```
 
-- `id` 是本地配置别名，必须非空，并且在所有 `accounts` 项中唯一。
-- 认证时使用这个值：`checkgram auth primary`。
+- ID 是 Checkgram 本地别名，同时决定 `--data-dir/<id>.session` 的文件名；
+- 只能使用字母、数字、`.`、`_` 和 `-`，长度为 1–64 个字符，且必须以字母或数字开头；
+- `auth` 一次只处理一个账号，不支持 `--all`、`--from-config` 或无参数模式；
+- 认证成功后如果已存在同名 session，必须输入完整的 `yes` 明确确认覆盖；其他输入都会取消认证；
+- 每个 Telegram 账号使用独立 session，但所有账号共用同一套 `TELEGRAM_API_ID` 与 `TELEGRAM_API_HASH`；
+- 认证成功后会显示脱敏的 Telegram username、手机号末两位或 ID 末四位，便于确认本地别名没有绑定错误账号；
 - 会话文件由程序保存到 `--data-dir` 下的 `<id>.session`，因此不要把手机号、StringSession 或其他登录信息填到 `config.toml`。
 
 ### `[[workflows]]` 工作流设置
@@ -222,7 +223,7 @@ times = ["08:00", "20:00"]
 ```
 
 - `id`：工作流唯一标识。手动执行时使用 `checkgram run <id>`。
-- `account`：要使用的账号 `id`，必须已经在 `[[accounts]]` 中声明。
+- `account`：要使用的本地账号 ID。它可以先写入 workflow，再单独执行 `auth ACCOUNT_ID` 创建 session。
 - `target`：Telegram 目标，通常是公开 Bot 用户名，例如 `@target_bot`。当前实现使用用户账号连接目标，不支持把 BotFather token 或手机号写在这里。
 - `times`：至少一个 `HH:MM` 字符串，可以填写多个时间；必须是两位小时和两位分钟，例如 `"08:00"`，不能写 `"8:00"`。重复时间没有实际意义，程序会按时间顺序处理。
 - `steps`：至少一个步骤，按 TOML 文件中的出现顺序执行。每个 workflow 的第一步是入口。
@@ -328,36 +329,37 @@ next = "success"
 
 ### 修改和校验流程
 
-1. 复制或编辑仓库根目录的 `config.toml`，先修改账号 `id`、workflow 的 `account`、`target`、`times` 和步骤内容。
+1. 复制或编辑仓库根目录的 `config.toml`，修改 workflow 的 `account`、`target`、`times` 和步骤内容；`account` 只填写本地账号 ID，不添加 `[[accounts]]`。
 2. 运行离线校验：
 
    ```bash
    uv run checkgram validate --config config.toml
    ```
 
-   `validate` 不读取 Telegram 凭据，也不会连接 Telegram；它会检查 TOML 语法、必填字段、类型、唯一 ID、账号引用、时间格式和工作流跳转。
+   `validate` 不读取 Telegram 凭据，也不会连接 Telegram；它会检查 TOML 语法、必填字段、类型、唯一 ID、账号引用格式、时间格式和工作流跳转。
 3. 为每个账号分别认证，例如：
 
    ```bash
-   uv run checkgram auth primary --config config.toml --data-dir ./data
+   uv run checkgram auth primary --data-dir ./data
    ```
 
-4. 先用 `run WORKFLOW_ID` 手动执行一次，确认目标、按钮文字和回复匹配值正确，再启动 `serve`。
+   如果希望在运行前同时检查 session，可以执行 `uv run checkgram validate --config config.toml --data-dir ./data`。缺少 session 时，命令会给出对应的单账号 `auth` 修复命令。
+4. 先用 `run WORKFLOW_ID` 手动执行一次，确认目标、按钮文字和回复匹配值正确，再启动 `serve`。`run` 和 `serve` 也会在建立连接或等待调度前检查所需 session。
 
 配置在进程启动时读取一次。修改 `config.toml` 后，必须重新执行 `run` 或重启 `serve`；运行中的进程不会自动重新加载。
 
-`validate` 失败时，错误会带出配置路径，例如 `workflows[0].steps[1].cases[0].next`，可以根据路径定位对应的表项。常见错误包括：把 `08:00` 写成 `8:00`、`account` 拼写与账号 `id` 不一致、把步骤跳转到前面的步骤、给 `wait`/`click` 忘记添加 case，或把 `send` 步骤错误地写成带 `cases`。
+`validate` 失败时，错误会带出配置路径，例如 `workflows[0].steps[1].cases[0].next`，可以根据路径定位对应的表项。常见错误包括：把 `08:00` 写成 `8:00`、使用不安全的 `account` ID、把步骤跳转到前面的步骤、给 `wait`/`click` 忘记添加 case，或把 `send` 步骤错误地写成带 `cases`。
 
 ## 命令参考
 
 | 命令 | 用途 |
 | --- | --- |
 | `validate` | 只读取 TOML 并离线校验，不连接 Telegram |
-| `auth ACCOUNT_ID` | 交互认证一个已配置账号并保存独立 StringSession |
+| `auth ACCOUNT_ID` | 交互创建或重新认证一个本地账号并保存独立 StringSession |
 | `run WORKFLOW_ID` | 立即执行一个工作流；不修改下一次计划时间 |
 | `serve` | 持有服务锁，等待并串行执行所有计划工作流 |
 
-所有命令都支持 `--config PATH`；`auth`、`run` 和 `serve` 还支持 `--data-dir PATH`。配置在进程启动时加载一次。成功命令返回退出码 `0`，配置、认证、锁或工作流失败返回非零退出码。
+`validate`、`run` 和 `serve` 支持 `--config PATH`；`validate`、`auth`、`run` 和 `serve` 支持 `--data-dir PATH`。`auth` 不读取配置文件；其他命令在进程启动时加载一次配置。成功命令返回退出码 `0`，配置、认证、锁或工作流失败返回非零退出码。
 
 ## 安全与日志
 

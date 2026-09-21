@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .errors import ConfigError
 
 TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 STEP_TYPES = frozenset({"send", "wait", "click"})
 MATCH_TYPES = frozenset({"exact", "contains"})
 TERMINAL_TARGETS = frozenset({"success", "failure"})
@@ -24,11 +25,6 @@ TERMINAL_TARGETS = frozenset({"success", "failure"})
 class AppConfig:
     timezone: str
     step_timeout: int
-
-
-@dataclass(frozen=True, slots=True)
-class AccountConfig:
-    id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +57,6 @@ class WorkflowConfig:
 @dataclass(frozen=True, slots=True)
 class Config:
     app: AppConfig
-    accounts: tuple[AccountConfig, ...]
     workflows: tuple[WorkflowConfig, ...]
 
 
@@ -85,27 +80,19 @@ def parse_config(document: Mapping[str, Any]) -> Config:
     step_timeout = _positive_int(app_table, "step_timeout", "app.step_timeout")
     app = AppConfig(timezone=timezone, step_timeout=step_timeout)
 
-    accounts_raw = _array(document, "accounts", "accounts")
-    accounts = tuple(_parse_account(item, index) for index, item in enumerate(accounts_raw))
-    _ensure_unique((account.id for account in accounts), "accounts")
+    if "accounts" in document:
+        _fail("accounts", "is no longer supported; run auth ACCOUNT_ID to create an account")
 
     workflows_raw = _array(document, "workflows", "workflows")
     workflows = tuple(
         _parse_workflow(item, index, app.step_timeout) for index, item in enumerate(workflows_raw)
     )
     _ensure_unique((workflow.id for workflow in workflows), "workflows")
-    account_ids = {account.id for account in accounts}
     for index, workflow in enumerate(workflows):
         path = f"workflows[{index}].account"
-        if workflow.account_id not in account_ids:
-            _fail(path, f"unknown account {workflow.account_id!r}")
-    return Config(app=app, accounts=accounts, workflows=workflows)
-
-
-def _parse_account(raw: Any, index: int) -> AccountConfig:
-    path = f"accounts[{index}]"
-    table = _table_value(raw, path)
-    return AccountConfig(id=_non_empty_string(table, "id", f"{path}.id"))
+        if not ACCOUNT_ID_RE.fullmatch(workflow.account_id):
+            _fail(path, "must be a safe account ID (letters, numbers, ., _, - only)")
+    return Config(app=app, workflows=workflows)
 
 
 def _parse_workflow(raw: Any, index: int, default_timeout: int) -> WorkflowConfig:

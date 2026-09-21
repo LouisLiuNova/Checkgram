@@ -8,7 +8,12 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .auth import SessionStore, authenticate_account, load_api_credentials
+from .auth import (
+    SessionStore,
+    authenticate_account,
+    load_api_credentials,
+    require_sessions,
+)
 from .config import load_config
 from .errors import AuthError, ConfigError
 from .locks import AccountLock, LockBusyError, ServiceLock
@@ -27,14 +32,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("config.toml"),
         help="configuration path (default: config.toml)",
     )
-    auth = subparsers.add_parser("auth", help="authenticate one configured Telegram account")
-    auth.add_argument("account_id", help="configured account ID")
-    auth.add_argument(
-        "--config",
+    validate.add_argument(
+        "--data-dir",
         type=Path,
-        default=Path("config.toml"),
-        help="configuration path (default: config.toml)",
+        default=None,
+        help="also verify referenced sessions in this directory",
     )
+    auth = subparsers.add_parser("auth", help="authenticate one Telegram account")
+    auth.add_argument("account_id", help="local account ID")
     auth.add_argument(
         "--data-dir",
         type=Path,
@@ -55,51 +60,66 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "validate":
         try:
-            load_config(args.config)
-        except (ConfigError, OSError) as exc:
+            config = load_config(args.config)
+            if args.data_dir is not None:
+                require_sessions(
+                    [workflow.account_id for workflow in config.workflows], args.data_dir
+                )
+        except (AuthError, ConfigError, OSError) as exc:
             print(f"invalid configuration: {exc}", file=sys.stderr)
             return 1
-        print(f"configuration is valid: {args.config}")
+        suffix = " and referenced sessions are present" if args.data_dir is not None else ""
+        print(f"configuration is valid{suffix}: {args.config}")
         return 0
     if args.command == "auth":
         try:
-            config = load_config(args.config)
-            account = next(
-                (item for item in config.accounts if item.id == args.account_id),
-                None,
-            )
-            if account is None:
-                raise AuthError(f"unknown account {args.account_id!r}")
+            SessionStore(args.data_dir).path_for(args.account_id)
             credentials = load_api_credentials()
             configure_logging((credentials.api_hash,))
-            with AccountLock(args.data_dir, account.id):
-                path = asyncio.run(
-                    authenticate_account(account, credentials, SessionStore(args.data_dir))
+            identity: list[str] = []
+            with AccountLock(args.data_dir, args.account_id):
+                session_path = asyncio.run(
+                    authenticate_account(
+                        args.account_id,
+                        credentials,
+                        SessionStore(args.data_dir),
+                        identity_sink=identity.append,
+                    )
                 )
         except (AuthError, ConfigError, LockBusyError, OSError) as exc:
             print(f"authentication failed: {exc}", file=sys.stderr)
             return 1
-        print(f"session saved for account {account.id!r}: {path}")
+        print(
+            f"authenticated Telegram identity: {identity[0]}; "
+            f"session saved for account {args.account_id!r}: {session_path}"
+        )
         return 0
     if args.command in {"run", "serve"}:
         try:
             config = load_config(args.config)
-            credentials = load_api_credentials()
-            configure_logging((credentials.api_hash,))
             if args.command == "run":
                 workflow = next(
                     (item for item in config.workflows if item.id == args.workflow_id), None
                 )
                 if workflow is None:
                     raise ConfigError("workflow_id", f"unknown workflow {args.workflow_id!r}")
-                result = asyncio.run(
-                    run_configured_round(config, workflow, args.data_dir, credentials)
+                selected_workflow = workflow
+                require_sessions([selected_workflow.account_id], args.data_dir)
+            else:
+                require_sessions(
+                    [workflow.account_id for workflow in config.workflows], args.data_dir
+                )
+            credentials = load_api_credentials()
+            configure_logging((credentials.api_hash,))
+            if args.command == "run":
+                round_result = asyncio.run(
+                    run_configured_round(config, selected_workflow, args.data_dir, credentials)
                 )
                 print(
-                    f"workflow {workflow.id!r}: {result.outcome.status} "
-                    f"({result.outcome.reason}, attempts={result.attempts})"
+                    f"workflow {selected_workflow.id!r}: {round_result.outcome.status} "
+                    f"({round_result.outcome.reason}, attempts={round_result.attempts})"
                 )
-                return 0 if result.outcome.status == "success" else 1
+                return 0 if round_result.outcome.status == "success" else 1
 
             with ServiceLock(args.data_dir):
                 asyncio.run(

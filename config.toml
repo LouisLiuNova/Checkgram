@@ -1,11 +1,9 @@
-# Edit this file for your own accounts and workflows.
+# Edit this file for your workflows. Create each referenced account with:
+# uv run checkgram auth <account-id> --data-dir ./data
 
 [app]
 timezone = "Asia/Shanghai"
 step_timeout = 30
-
-[[accounts]]
-id = "primary"
 
 [[workflows]]
 id = "daily-checkin"

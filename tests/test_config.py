@@ -17,7 +17,6 @@ EXAMPLE = Path(__file__).parents[1] / "config.toml"
 def valid_document() -> dict[str, Any]:
     return {
         "app": {"timezone": "Asia/Shanghai", "step_timeout": 30},
-        "accounts": [{"id": "primary"}],
         "workflows": [
             {
                 "id": "daily-checkin",
@@ -58,7 +57,6 @@ def test_example_config_is_valid() -> None:
 
 def test_config_is_typed_and_step_timeout_defaults_from_app() -> None:
     config = parse_config(valid_document())
-    assert config.accounts[0].id == "primary"
     assert config.workflows[0].times[0].hour == 8
     assert config.workflows[0].steps[0].timeout == 30
 
@@ -66,9 +64,9 @@ def test_config_is_typed_and_step_timeout_defaults_from_app() -> None:
 @pytest.mark.parametrize(
     ("mutation", "path"),
     [
-        (lambda data: data["accounts"].append({"id": "primary"}), "accounts"),
+        (lambda data: data.update(accounts=[]), "accounts"),
         (lambda data: data["workflows"].append(deepcopy(data["workflows"][0])), "workflows"),
-        (lambda data: data["workflows"][0].update(account="missing"), "workflows[0].account"),
+        (lambda data: data["workflows"][0].update(account=""), "workflows[0].account"),
         (lambda data: data["app"].update(timezone="Mars/Colony"), "app.timezone"),
         (lambda data: data["workflows"][0].update(times=["8:00"]), "workflows[0].times[0]"),
         (lambda data: data["app"].update(step_timeout=0), "app.step_timeout"),

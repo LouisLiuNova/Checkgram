@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import tempfile
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
@@ -15,11 +14,9 @@ from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 
-from .config import AccountConfig
+from .config import ACCOUNT_ID_RE
 from .errors import AuthError
 from .logging import register_secrets
-
-ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +42,7 @@ def load_api_credentials(environment: Mapping[str, str] | None = None) -> ApiCre
 
 
 class SessionStore:
-    """Atomically persist one Telethon StringSession per configured account."""
+    """Atomically persist one Telethon StringSession per local account alias."""
 
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
@@ -71,7 +68,11 @@ class SessionStore:
             raise AuthError("refusing to save an empty Telegram session")
         register_secrets((session,))
         path = self.path_for(account_id)
-        self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(self.data_dir, 0o700)
+        except OSError as exc:
+            raise AuthError(f"cannot prepare session directory: {self.data_dir}") from exc
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -116,10 +117,13 @@ class ClientLike(Protocol):
 
     async def is_user_authorized(self) -> bool: ...
 
+    async def get_me(self) -> Any: ...
+
 
 ClientFactory = Callable[[Any, int, str], ClientLike]
 SessionParser = Callable[[str], Any]
 Prompt = Callable[[str, bool], str]
+IdentitySink = Callable[[str], None]
 
 
 def default_prompt(label: str, secret: bool) -> str:
@@ -131,14 +135,28 @@ def default_prompt(label: str, secret: bool) -> str:
 
 
 async def authenticate_account(
-    account: AccountConfig,
+    account_id: str,
     credentials: ApiCredentials,
     store: SessionStore,
     *,
     prompt: Prompt = default_prompt,
     client_factory: ClientFactory = TelegramClient,
+    identity_sink: IdentitySink | None = None,
 ) -> Path:
-    """Interactively authenticate an account and save its StringSession."""
+    """Interactively authenticate one account and save its StringSession."""
+    store.path_for(account_id)
+    if store.read(account_id) is not None:
+        confirmation = (
+            prompt(
+                f"Session for account {account_id!r} exists; overwrite it? Type 'yes' to confirm: ",
+                False,
+            )
+            .strip()
+            .lower()
+        )
+        if confirmation != "yes":
+            raise AuthError("authentication cancelled; existing session was not overwritten")
+
     client = client_factory(StringSession(), credentials.api_id, credentials.api_hash)
     try:
         await client.connect()
@@ -158,10 +176,14 @@ async def authenticate_account(
             await client.sign_in(password=password)
         if not await client.is_user_authorized():
             raise AuthError("Telegram did not authorize this account")
+        identity = format_telegram_identity(await client.get_me())
         session = client.session.save()
         if not isinstance(session, str) or not session:
             raise AuthError("Telegram returned an empty session")
-        return store.write(account.id, session)
+        path = store.write(account_id, session)
+        if identity_sink is not None:
+            identity_sink(identity)
+        return path
     except AuthError:
         raise
     except Exception as exc:
@@ -172,7 +194,7 @@ async def authenticate_account(
 
 @asynccontextmanager
 async def connected_client(
-    account: AccountConfig,
+    account_id: str,
     credentials: ApiCredentials,
     store: SessionStore,
     *,
@@ -180,12 +202,46 @@ async def connected_client(
     session_parser: SessionParser = StringSession,
 ) -> AsyncIterator[ClientLike]:
     """Connect only for the duration of a task and always disconnect afterwards."""
-    session = store.read(account.id)
+    session = store.read(account_id)
     if session is None:
-        raise AuthError(f"account {account.id!r} has no saved session; run auth first")
+        raise AuthError(f"account {account_id!r} has no saved session; run auth first")
     client = client_factory(session_parser(session), credentials.api_id, credentials.api_hash)
     try:
         await client.connect()
         yield client
     finally:
         await client.disconnect()
+
+
+def format_telegram_identity(user: Any) -> str:
+    """Return a confirmation label without exposing a full phone number or ID."""
+    if user is None:
+        raise AuthError("Telegram returned no identity after authentication")
+    username = getattr(user, "username", None)
+    user_id = getattr(user, "id", None)
+    phone = getattr(user, "phone", None)
+    parts: list[str] = []
+    if isinstance(username, str) and username:
+        parts.append(f"@{username}")
+    if phone:
+        phone_text = str(phone)
+        parts.append(f"phone ending {phone_text[-2:]}")
+    if user_id is not None:
+        id_text = str(user_id)
+        parts.append(f"ID ending {id_text[-4:]}")
+    if not parts:
+        raise AuthError("Telegram identity has no displayable fields")
+    return ", ".join(parts)
+
+
+def require_sessions(account_ids: list[str] | tuple[str, ...], data_dir: Path) -> None:
+    """Fail before execution when any referenced account has no usable session."""
+    store = SessionStore(data_dir)
+    missing: list[str] = []
+    for account_id in dict.fromkeys(account_ids):
+        if store.read(account_id) is None:
+            missing.append(account_id)
+    if missing:
+        commands = ", ".join(f"auth {account_id}" for account_id in missing)
+        accounts = ", ".join(repr(account_id) for account_id in missing)
+        raise AuthError(f"missing session for account(s) {accounts}; run {commands}")

@@ -13,7 +13,6 @@ from checkgram.workflow import WorkflowOutcome
 def workflow(times: list[str]) -> WorkflowConfig:
     document = {
         "app": {"timezone": "Asia/Shanghai", "step_timeout": 30},
-        "accounts": [{"id": "primary"}],
         "workflows": [
             {
                 "id": "daily",
@@ -92,7 +91,6 @@ def test_serve_runs_the_strictly_future_candidate_once() -> None:
     config = parse_config(
         {
             "app": {"timezone": "Asia/Shanghai", "step_timeout": 30},
-            "accounts": [{"id": "primary"}],
             "workflows": [
                 {
                     "id": item.id,
