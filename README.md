@@ -236,13 +236,15 @@ times = ["08:00", "20:00"]
 | --- | --- | --- |
 | `send` | 向 `target` 发送文本 | 必须有 `text` 和 `next`，不能有 `cases`。发送后立即进入 `next`；返回的消息可供后续 `click` 使用。 |
 | `wait` | 等待目标产生回复或事件 | 必须有至少一个 `cases`，不需要 `text`。会匹配新的消息、编辑后的消息或 callback answer。 |
-| `click` | 点击上一步回复中的按钮 | 必须有 `text` 和至少一个 `cases`。`text` 必须与上一条回复中的一个可见按钮文字完全相同；点击后继续等待并匹配 `cases`。 |
+| `click` | 点击上一步回复中的按钮 | 必须有 `text` 和至少一个 `cases`。默认按按钮可见文字精确匹配；可设置 `button_match = "contains"` 按文字片段匹配。点击后继续等待并匹配 `cases`。 |
 
 通用字段：
 
 - `timeout`：可选正整数，单位为秒，覆盖 `[app].step_timeout`。例如 `timeout = 45` 表示该步骤最多等待或执行 45 秒；实际仍受当前轮剩余预算限制。
+- `timeout_next`：仅 `wait` 可用。若在等待时间内没有收到当前 Bot 的相关回复，跳转到指定的后续步骤或终态；未设置时仍按超时失败处理。收到相关但未匹配的回复仍视为失败，不走该分支。
 - `next`：`send` 使用的后继步骤。也可以指向终态 `success` 或 `failure`。对于 `wait` 和 `click`，后继目标写在各自的 `cases.next` 中。
-- `text`：`send` 是要发送的文本；`click` 是要点击的按钮可见文字。点击匹配区分整个按钮文字，不是模糊包含匹配。
+- `text`：`send` 是要发送的文本；`click` 是要点击的按钮可见文字或片段。
+- `button_match`：仅 `click` 可用，取值 `exact`（默认）或 `contains`。片段匹配必须恰好命中一个按钮；命中多个按钮会失败，不会任选其一。
 
 步骤的跳转规则是有意限制的：目标只能是后面定义的步骤、`success` 或 `failure`。不允许跳回前面的步骤，也不允许形成循环；每一步都必须能通过 `next` 或某个 case 离开。这样可以在离线校验时发现拼写错误和无法结束的流程。
 
@@ -325,7 +327,7 @@ value = "完成"
 next = "success"
 ```
 
-`click` 只接受 callback button 和普通文字 reply keyboard。URL、WebApp、支付、验证码、请求手机号和请求位置按钮会被拒绝；按钮文字缺失或同一回复中出现多个同名按钮也会失败。
+`click` 只接受 callback button 和普通文字 reply keyboard。URL、WebApp、支付、验证码、请求手机号和请求位置按钮会被拒绝；按钮文字缺失或匹配多个按钮也会失败。`contains` 只改变选择方式，不会放宽按钮类型限制。
 
 ### 修改和校验流程
 
