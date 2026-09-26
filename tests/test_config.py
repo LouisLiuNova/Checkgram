@@ -106,6 +106,14 @@ def test_config_is_typed_and_step_timeout_defaults_from_app() -> None:
             lambda data: data["workflows"][0]["steps"][0].update(next=None),
             "workflows[0].steps[0].next",
         ),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(button_match="contains"),
+            "workflows[0].steps[0].button_match",
+        ),
+        (
+            lambda data: data["workflows"][0]["steps"][0].update(timeout_next="success"),
+            "workflows[0].steps[0].timeout_next",
+        ),
     ],
 )
 def test_invalid_documents_are_rejected(
@@ -152,3 +160,24 @@ def test_parse_config_does_not_import_or_connect_telethon() -> None:
     config = parse_config(valid_document())
     assert config.workflows[0].id == "daily-checkin"
     assert not hasattr(config_module, "TelegramClient")
+
+
+def test_click_button_match_and_wait_timeout_next_are_validated() -> None:
+    document = valid_document()
+    steps = document["workflows"][0]["steps"]
+    steps[1]["timeout_next"] = "success"
+    steps.append(
+        {
+            "id": "click",
+            "type": "click",
+            "text": "立即签到",
+            "button_match": "contains",
+            "cases": [{"id": "done", "match": "contains", "value": "成功", "next": "success"}],
+        }
+    )
+    config = parse_config(document)
+    assert config.workflows[0].steps[1].timeout_next == "success"
+    assert config.workflows[0].steps[2].button_match == "contains"
+
+    steps[2]["button_match"] = "prefix"
+    assert_invalid(document, "workflows[0].steps[2].button_match")
