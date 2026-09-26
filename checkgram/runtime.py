@@ -37,14 +37,18 @@ async def run_configured_attempt(
     store = SessionStore(data_dir)
     attempt_id = uuid4().hex
     async with connected_client(account_id, credentials, store) as client:
-        return await run_workflow(
-            workflow,
-            TelethonGateway(client),
-            attempt_id=attempt_id,
-            attempt_started_at=datetime.now(UTC),
-            deadline=deadline,
-            account_alias=account_id,
-        )
+        gateway = TelethonGateway(client)
+        try:
+            return await run_workflow(
+                workflow,
+                gateway,
+                attempt_id=attempt_id,
+                attempt_started_at=datetime.now(UTC),
+                deadline=deadline,
+                account_alias=account_id,
+            )
+        finally:
+            gateway.close()
 
 
 async def run_configured_round(

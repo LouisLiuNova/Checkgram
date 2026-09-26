@@ -129,21 +129,35 @@ async def run_workflow(
                 deadline,
             )
         except StepFailure as exc:
-            log_event(
-                workflow=workflow.id,
-                account=account_alias,
-                attempt=attempt_id,
-                step=step.id,
-                action=step.type,
-                result=exc.reason,
-                message="step failed",
-            )
-            return WorkflowOutcome(
-                status="failure",
-                reason=exc.reason,
-                step_id=step.id,
-                event_kind=exc.event_kind,
-            )
+            if exc.reason == "timeout" and step.timeout_next is not None:
+                next_target = step.timeout_next
+                last_reply = None
+                event_kind = None
+                log_event(
+                    workflow=workflow.id,
+                    account=account_alias,
+                    attempt=attempt_id,
+                    step=step.id,
+                    action=step.type,
+                    result="timeout_next",
+                    message="step followed timeout branch",
+                )
+            else:
+                log_event(
+                    workflow=workflow.id,
+                    account=account_alias,
+                    attempt=attempt_id,
+                    step=step.id,
+                    action=step.type,
+                    result=exc.reason,
+                    message="step failed",
+                )
+                return WorkflowOutcome(
+                    status="failure",
+                    reason=exc.reason,
+                    step_id=step.id,
+                    event_kind=exc.event_kind,
+                )
         if next_target in {"success", "failure"}:
             log_event(
                 workflow=workflow.id,
@@ -188,7 +202,15 @@ async def _run_step(
         assert step.text is not None
         if last_reply is None:
             raise StepFailure("button_missing")
-        matches = tuple(button for button in last_reply.buttons if button.text == step.text)
+        matches = tuple(
+            button
+            for button in last_reply.buttons
+            if (
+                button.text == step.text
+                if step.button_match == "exact"
+                else step.text in button.text
+            )
+        )
         if not matches:
             raise StepFailure("button_missing")
         if len(matches) != 1:

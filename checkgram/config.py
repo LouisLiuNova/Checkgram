@@ -40,8 +40,10 @@ class StepConfig:
     id: str
     type: str
     text: str | None
+    button_match: str
     timeout: int
     next: str | None
+    timeout_next: str | None
     cases: tuple[CaseConfig, ...]
 
 
@@ -143,10 +145,22 @@ def _parse_step(raw: Any, index: int, default_timeout: int, workflow_path: str) 
         _fail(f"{path}.text", "is required for send steps")
     if step_type == "click" and text is None:
         _fail(f"{path}.text", "is required for click steps")
+    button_match = "exact"
+    if "button_match" in table:
+        if step_type != "click":
+            _fail(f"{path}.button_match", "is only supported for click steps")
+        button_match = _string(table, "button_match", f"{path}.button_match")
+        if button_match not in MATCH_TYPES:
+            _fail(f"{path}.button_match", "must be exact or contains")
 
     next_target = None
     if "next" in table:
         next_target = _non_empty_string(table, "next", f"{path}.next")
+    timeout_next = None
+    if "timeout_next" in table:
+        if step_type != "wait":
+            _fail(f"{path}.timeout_next", "is only supported for wait steps")
+        timeout_next = _non_empty_string(table, "timeout_next", f"{path}.timeout_next")
 
     raw_cases = table.get("cases", [])
     cases_raw = _array_value(raw_cases, f"{path}.cases")
@@ -159,8 +173,10 @@ def _parse_step(raw: Any, index: int, default_timeout: int, workflow_path: str) 
         id=step_id,
         type=step_type,
         text=text,
+        button_match=button_match,
         timeout=timeout,
         next=next_target,
+        timeout_next=timeout_next,
         cases=cases,
     )
 
@@ -187,6 +203,8 @@ def _validate_workflow_steps(steps: tuple[StepConfig, ...], workflow_path: str) 
         targets: list[tuple[str, str]] = []
         if step.next is not None:
             targets.append(("next", step.next))
+        if step.timeout_next is not None:
+            targets.append(("timeout_next", step.timeout_next))
         targets.extend(
             (f"cases[{case_index}].next", case.next) for case_index, case in enumerate(step.cases)
         )
@@ -209,7 +227,11 @@ def _assert_acyclic(
 ) -> None:
     graph: dict[str, tuple[str, ...]] = {}
     for step in steps:
-        targets = [target for target in (step.next, *(case.next for case in step.cases)) if target]
+        targets = [
+            target
+            for target in (step.next, step.timeout_next, *(case.next for case in step.cases))
+            if target
+        ]
         graph[step.id] = tuple(target for target in targets if target in step_indexes)
 
     visiting: set[str] = set()

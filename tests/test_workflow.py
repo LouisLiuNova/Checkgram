@@ -181,6 +181,108 @@ def test_click_selects_one_supported_visible_button() -> None:
     assert gateway.clicked == [(7, "Confirm")]
 
 
+def test_click_contains_selects_one_button_and_rejects_ambiguous_matches() -> None:
+    workflow = parse_workflow(
+        {"id": "send", "type": "send", "text": "/start", "next": "wait"},
+        {
+            "id": "wait",
+            "type": "wait",
+            "cases": [{"id": "page", "match": "contains", "value": "未签到", "next": "click"}],
+        },
+        {
+            "id": "click",
+            "type": "click",
+            "text": "立即签到",
+            "button_match": "contains",
+            "cases": [{"id": "ok", "match": "contains", "value": "签到成功", "next": "success"}],
+        },
+    )
+    reply = Reply(
+        message_id=7,
+        target="@target_bot",
+        buttons=(Button(text="📝 立即签到", kind="callback"),),
+    )
+    gateway = FakeGateway([event("今日未签到", reply=reply), event("签到成功！")])
+    assert run(workflow, gateway).status == "success"
+    assert gateway.clicked == [(7, "📝 立即签到")]
+
+    ambiguous = Reply(
+        message_id=8,
+        target="@target_bot",
+        buttons=(
+            Button(text="📝 立即签到", kind="callback"),
+            Button(text="立即签到（备用）", kind="callback"),
+        ),
+    )
+    outcome = run(workflow, FakeGateway([event("今日未签到", reply=ambiguous)]))
+    assert outcome.reason == "button_ambiguous"
+
+
+def test_optional_quiz_after_success_and_timeout_success() -> None:
+    workflow = parse_workflow(
+        {"id": "send", "type": "send", "text": "📅 每日签到", "next": "page"},
+        {
+            "id": "page",
+            "type": "wait",
+            "cases": [{"id": "open", "match": "contains", "value": "今日未签到", "next": "sign"}],
+        },
+        {
+            "id": "sign",
+            "type": "click",
+            "text": "立即签到",
+            "button_match": "contains",
+            "cases": [
+                {"id": "success", "match": "contains", "value": "签到成功！", "next": "maybe-quiz"},
+                {"id": "quiz", "match": "contains", "value": "记忆小测", "next": "answer"},
+            ],
+        },
+        {
+            "id": "maybe-quiz",
+            "type": "wait",
+            "timeout_next": "success",
+            "cases": [{"id": "quiz", "match": "contains", "value": "记忆小测", "next": "answer"}],
+        },
+        {
+            "id": "answer",
+            "type": "click",
+            "text": "oixel.net",
+            "button_match": "contains",
+            "cases": [
+                {"id": "correct", "match": "contains", "value": "答对了！", "next": "success"}
+            ],
+        },
+    )
+    sign_reply = Reply(
+        message_id=7,
+        target="@target_bot",
+        buttons=(Button(text="📝 立即签到", kind="callback"),),
+    )
+    quiz_reply = Reply(
+        message_id=8,
+        target="@target_bot",
+        buttons=(Button(text="oixel.net ✅", kind="callback"),),
+    )
+    gateway = FakeGateway(
+        [
+            event("今日未签到", reply=sign_reply),
+            event("签到成功！"),
+            event("记忆小测", reply=quiz_reply),
+            event("答对了！"),
+        ]
+    )
+    assert run(workflow, gateway).status == "success"
+    assert gateway.clicked == [(7, "📝 立即签到"), (8, "oixel.net ✅")]
+
+    no_quiz = FakeGateway([event("今日未签到", reply=sign_reply), event("签到成功！")])
+    assert run(workflow, no_quiz).status == "success"
+    assert no_quiz.clicked == [(7, "📝 立即签到")]
+
+    unexpected = FakeGateway(
+        [event("今日未签到", reply=sign_reply), event("签到成功！"), event("未知提示")]
+    )
+    assert run(workflow, unexpected).reason == "unmatched"
+
+
 @pytest.mark.parametrize(
     ("buttons", "reason"),
     [

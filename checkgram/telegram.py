@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from telethon import events
+from telethon.tl import types
 
 from .workflow import Button, ButtonKind, Reply, WorkflowEvent
 
@@ -18,33 +19,51 @@ class TelethonGateway:
         self.client = client
         self.target: str | None = None
         self.target_chat_id: int | None = None
+        self._events: asyncio.Queue[Any] = asyncio.Queue(maxsize=128)
+        self._listening = False
 
     async def send_message(self, target: str, text: str) -> Reply:
-        message = await self.client.send_message(target, text)
         self.target = target
+        self._start_listening()
+        message = await self.client.send_message(target, text)
         self.target_chat_id = getattr(message, "chat_id", None)
         return _reply_from_message(message, target)
 
     async def next_event(self, timeout: float) -> WorkflowEvent:
         if self.target is None:
             raise RuntimeError("send_message must run before waiting for events")
-        current_target = self.target
         loop = asyncio.get_running_loop()
-        future: asyncio.Future[WorkflowEvent] = loop.create_future()
+        deadline = loop.time() + timeout
+        while (remaining := deadline - loop.time()) > 0:
+            raw_event = await asyncio.wait_for(self._events.get(), timeout=remaining)
+            normalized = _event_from_telethon(raw_event, self.target, self.target_chat_id)
+            if normalized is not None:
+                return normalized
+        raise TimeoutError
 
-        async def handler(event: Any) -> None:
-            normalized = _event_from_telethon(event, current_target, self.target_chat_id)
-            if normalized is not None and not future.done():
-                future.set_result(normalized)
+    def close(self) -> None:
+        if not self._listening:
+            return
+        for event_type in (events.NewMessage, events.MessageEdited, events.CallbackQuery):
+            self.client.remove_event_handler(self._on_event, event_type)
+        self._listening = False
 
-        event_types = (events.NewMessage, events.MessageEdited, events.CallbackQuery)
-        for event_type in event_types:
-            self.client.add_event_handler(handler, event_type)
-        try:
-            return await asyncio.wait_for(future, timeout=timeout)
-        finally:
-            for event_type in event_types:
-                self.client.remove_event_handler(handler, event_type)
+    def _start_listening(self) -> None:
+        if self._listening:
+            return
+        for event_type in (events.NewMessage, events.MessageEdited, events.CallbackQuery):
+            self.client.add_event_handler(self._on_event, event_type)
+        self._listening = True
+
+    async def _on_event(self, event: Any) -> None:
+        if (
+            self.target_chat_id is not None
+            and getattr(event, "chat_id", None) != self.target_chat_id
+        ):
+            return
+        if self._events.full():
+            self._events.get_nowait()
+        self._events.put_nowait(event)
 
     async def click_button(self, reply: Reply, button: Button) -> None:
         if button.kind == "callback":
@@ -60,9 +79,9 @@ def _event_from_telethon(
     message = getattr(event, "message", None)
     chat_id = getattr(event, "chat_id", None)
     event_target = target if chat_id == target_chat_id else str(chat_id)
-    occurred_at = getattr(message, "date", None) or datetime.now(UTC)
-    if occurred_at.tzinfo is None:
-        occurred_at = occurred_at.replace(tzinfo=UTC)
+    # The handler only receives live events. Telegram message dates have second
+    # precision (and edits can retain the original date), so use receipt time.
+    occurred_at = datetime.now(UTC)
 
     class_name = type(event).__name__
     is_callback = isinstance(event, events.CallbackQuery.Event)
@@ -106,26 +125,34 @@ def _reply_from_message(message: Any, target: str) -> Reply:
 
 
 def _button_from_telethon(button: Any) -> Button:
-    class_name = type(button).__name__
+    wrapped = getattr(button, "button", button)
+    button_type = getattr(wrapped, "type", None)
     kind: ButtonKind
-    if "Callback" in class_name:
+    if isinstance(button_type, types.InlineButtonTypeCallback):
         kind = "callback"
-    elif "Text" in class_name:
+    elif isinstance(button_type, types.ButtonTypeDefault):
         kind = "reply"
-    elif "WebView" in class_name or "WebApp" in class_name:
+    elif isinstance(button_type, (types.InlineButtonTypeWebView, types.ButtonTypeSimpleWebView)):
         kind = "web_app"
-    elif "Url" in class_name or "SwitchInline" in class_name:
+    elif isinstance(
+        button_type,
+        (
+            types.InlineButtonTypeUrl,
+            types.InlineButtonTypeUrlAuth,
+            types.InlineButtonTypeSwitchInline,
+        ),
+    ):
         kind = "url"
-    elif "Buy" in class_name or "Game" in class_name:
+    elif isinstance(button_type, (types.InlineButtonTypeBuy, types.InlineButtonTypeGame)):
         kind = "payment"
-    elif "RequestPhone" in class_name:
+    elif isinstance(button_type, types.ButtonTypeRequestPhone):
         kind = "request_phone"
-    elif "RequestGeo" in class_name:
+    elif isinstance(button_type, types.ButtonTypeRequestGeoLocation):
         kind = "request_location"
-    elif "KeyboardButton" in class_name or "ButtonText" in class_name:
-        kind = "reply"
     else:
         kind = "captcha"
     return Button(
-        text=str(getattr(button, "text", "")), kind=kind, data=getattr(button, "data", None)
+        text=str(getattr(button, "text", "")),
+        kind=kind,
+        data=getattr(button_type, "data", None) if kind == "callback" else None,
     )
