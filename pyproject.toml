@@ -1,6 +1,6 @@
 [project]
 name = "checkgram"
-version = "0.1.0"
+version = "1.0.0"
 description = "A lightweight, self-hosted Telegram automation runner."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"

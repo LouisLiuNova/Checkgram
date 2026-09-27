@@ -378,14 +378,14 @@ next = "success"
 
 GitHub Release 发布后，`release.yml` 会先执行测试、静态检查、镜像构建和 Compose 检查，再推送 `linux/amd64` 镜像到 [`ghcr.io/louisliunova/checkgram`](https://github.com/LouisLiuNova/Checkgram/pkgs/container/checkgram)。镜像标签包括：
 
-- Release 原始 tag，例如 `v0.1.0`；
+- Release 原始 tag，例如 `v1.0.0`；
 - 对应提交的 `sha-<full-commit-sha>`；
 - 稳定版额外更新 `latest`；预发布不会覆盖 `latest`。
 
 生产环境建议固定 Release tag：
 
 ```yaml
-image: ghcr.io/louisliunova/checkgram:v0.1.0
+image: ghcr.io/louisliunova/checkgram:v1.0.0
 ```
 
 升级前备份 `/data` 和 `config.toml`，将 tag 改为目标版本后重新拉取并启动；回滚时恢复上一个已验证的 tag。不要用 `latest` 作为无法追踪的生产依赖。
