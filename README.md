@@ -151,7 +151,7 @@ value = "失败"
 next = "failure"
 ```
 
-账号不写入配置。先通过 `auth ACCOUNT_ID` 创建每个本地账号，再增加 workflow 并修改 `account` 即可复用步骤定义：
+配置中不单独声明账号表。先通过 `auth ACCOUNT_ID` 创建每个本地账号，再增加 workflow 并用 `account` 引用对应的本地账号 ID，即可复用步骤定义：
 
 ```toml
 [[workflows]]
@@ -179,7 +179,7 @@ next = "success"
 
 ### 配置结构
 
-TOML 中的 `[[...]]` 表示数组中的一项，因此每个账号、工作流、步骤和条件都要重复对应的表头。所有字段均区分字符串和数字：例如 `step_timeout = 30` 正确，而 `step_timeout = "30"` 会被拒绝。
+TOML 中的 `[[...]]` 表示数组中的一项，因此每个工作流、步骤和条件都要重复对应的表头。账号通过 `auth ACCOUNT_ID` 创建，无需 `[[accounts]]` 表。所有字段均区分字符串和数字：例如 `step_timeout = 30` 正确，而 `step_timeout = "30"` 会被拒绝。
 
 | 路径 | 必填字段 | 说明 |
 | --- | --- | --- |

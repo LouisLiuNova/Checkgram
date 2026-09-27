@@ -36,6 +36,7 @@ docker run --rm checkgram:mvp --help
 - [x] 2026-09-27 07:00（Asia/Shanghai）计划任务进入 `send → wait → click → wait`，Bot 返回签到成功；可选等待 15 秒后成功结束。对话记录中也存在对应的签到成功回复。
 - [x] 2026-09-27 重启容器后会话校验通过；重启后立即观察到服务继续运行，未出现补跑日志。
 - [x] 通过 SSH 检查彩色、脱敏的工作流日志；重启后空闲进程 `VmRSS` 为 58,824 kB。
+- [x] 2026-09-27 23:58（Asia/Shanghai）为第二个账号增加独立工作流，`validate --data-dir /data` 确认两个会话均存在。手动执行 `send → wait → click → wait`，一次尝试以 `success` 结束；用户已在目标对话中确认看到签到。随后重启常驻容器并再次通过会话校验，服务恢复运行。
 - [ ] 真实答题分支、失败分支和单流程峰值 RSS 尚未观察或测量。
 - [ ] 发布测试 GitHub Release，确认 Actions 成功、GHCR 中存在 Release tag 和 SHA 标签，稳定版更新 `latest`、预发布不覆盖 `latest`；
 - [ ] 按 README 的固定版本方式拉取镜像并完成一次容器启动/回滚演练。

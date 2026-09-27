@@ -17,7 +17,7 @@ def test_telethon_button_wrapper_uses_inner_button_type() -> None:
     )
     reply = types.KeyboardButton(text="Answer", type=types.ButtonTypeDefault())
     url = types.KeyboardInlineButton(
-        text="oixel.net", type=types.InlineButtonTypeUrl(url="https://oixel.net")
+        text="example.org", type=types.InlineButtonTypeUrl(url="https://example.org")
     )
 
     assert _button_from_telethon(SimpleNamespace(text=callback.text, button=callback)).kind == (

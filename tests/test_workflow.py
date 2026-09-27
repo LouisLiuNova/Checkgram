@@ -245,7 +245,7 @@ def test_optional_quiz_after_success_and_timeout_success() -> None:
         {
             "id": "answer",
             "type": "click",
-            "text": "oixel.net",
+            "text": "example.org",
             "button_match": "contains",
             "cases": [
                 {"id": "correct", "match": "contains", "value": "答对了！", "next": "success"}
@@ -260,7 +260,7 @@ def test_optional_quiz_after_success_and_timeout_success() -> None:
     quiz_reply = Reply(
         message_id=8,
         target="@target_bot",
-        buttons=(Button(text="oixel.net ✅", kind="callback"),),
+        buttons=(Button(text="example.org ✅", kind="callback"),),
     )
     gateway = FakeGateway(
         [
@@ -271,7 +271,7 @@ def test_optional_quiz_after_success_and_timeout_success() -> None:
         ]
     )
     assert run(workflow, gateway).status == "success"
-    assert gateway.clicked == [(7, "📝 立即签到"), (8, "oixel.net ✅")]
+    assert gateway.clicked == [(7, "📝 立即签到"), (8, "example.org ✅")]
 
     no_quiz = FakeGateway([event("今日未签到", reply=sign_reply), event("签到成功！")])
     assert run(workflow, no_quiz).status == "success"
