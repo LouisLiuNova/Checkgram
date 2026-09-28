@@ -120,9 +120,12 @@ async def serve(
             await sleep(wait_seconds)
         current = clock()
         due = sorted(
-            (candidate, workflow)
-            for candidate, workflow in candidates
-            if candidate <= current.astimezone(UTC)
+            (
+                (candidate, workflow)
+                for candidate, workflow in candidates
+                if candidate <= current.astimezone(UTC)
+            ),
+            key=lambda item: item[0],
         )
         for _, workflow in due:
             if stop():
