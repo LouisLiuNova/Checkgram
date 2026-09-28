@@ -46,6 +46,20 @@ Checkgram 是一个自托管的 Telegram 定时工作流运行器，适合在单
 
 Compose 服务不暴露端口。容器以非 root 用户运行，根文件系统只读，仅命名卷 `/data` 可写。
 
+## 镜像发布、升级与回滚
+
+默认的 `local` 镜像由 Compose 从当前源码构建。正式部署建议固定 [GHCR 镜像](https://github.com/LouisLiuNova/Checkgram/pkgs/container/checkgram)的 Release tag；不要把运行中的服务留在会移动的 `latest` 标签上。例如使用已发布的 `v1.0.0`：
+
+```bash
+CHECKGRAM_IMAGE_TAG=v1.0.0 docker compose pull checkgram
+CHECKGRAM_IMAGE_TAG=v1.0.0 docker compose up -d --no-build --pull never
+CHECKGRAM_IMAGE_TAG=v1.0.0 docker compose ps
+```
+
+升级前备份 `config.toml`、`.env` 和 `checkgram-data` 卷，并记录当前镜像 tag。新版本发布后，将上述命令中的 tag 换成新版本；升级后使用相同的 `CHECKGRAM_IMAGE_TAG` 执行 `docker compose run --rm checkgram validate --data-dir /data`，查看日志并确认账号会话可复用。回滚时用同样的 `pull`、`up` 命令指定原 tag，再检查服务和会话。不要执行 `docker compose down -v`，它会删除会话卷。镜像首次拉取失败时，检查 tag、GHCR 包可见性及主机网络；私有包还需要相应的读取权限。
+
+GitHub Release 采用 SemVer tag。发布工作流在 Release 进入 `published` 状态后运行验证，并向 GHCR 推送原始 tag 和 `sha-<提交 SHA>` 标签；稳定版另更新 `latest`，预发布版按工作流配置不更新 `latest`。目前已实测 `v1.0.0` 正式版；预发布不覆盖 `latest` 的行为仍待真实发布验证，见 [MVP 验收记录](docs/mvp-acceptance.md)。
+
 ## 本地开发
 
 需要 Python 3.13 和 [uv](https://docs.astral.sh/uv/)。在项目根目录执行：

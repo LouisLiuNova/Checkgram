@@ -2,7 +2,7 @@ services:
   checkgram:
     build:
       context: .
-    image: ghcr.io/louisliunova/checkgram:local
+    image: ghcr.io/louisliunova/checkgram:${CHECKGRAM_IMAGE_TAG:-local}
     command: ["serve", "--config", "/app/config.toml", "--data-dir", "/data"]
     environment:
       - TELEGRAM_API_ID
