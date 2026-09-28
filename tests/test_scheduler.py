@@ -130,3 +130,53 @@ def test_serve_runs_the_strictly_future_candidate_once() -> None:
         )
     )
     assert runs == 1
+
+
+def test_serve_runs_simultaneous_workflows_in_config_order() -> None:
+    config = parse_config(
+        {
+            "app": {"timezone": "Asia/Shanghai", "step_timeout": 30},
+            "workflows": [
+                {
+                    "id": name,
+                    "account": name,
+                    "target": "@bot",
+                    "times": [scheduled_time],
+                    "steps": [{"id": "send", "type": "send", "text": "/start", "next": "success"}],
+                }
+                for name, scheduled_time in (
+                    ("first", "08:00"),
+                    ("second", "07:00"),
+                    ("third", "07:00"),
+                )
+            ],
+        }
+    )
+    current = datetime(2026, 9, 27, 22, 59, tzinfo=UTC)
+    runs: list[tuple[str, datetime]] = []
+
+    async def sleep(seconds: float) -> None:
+        nonlocal current
+        current += timedelta(seconds=seconds)
+
+    async def round_runner(name: str) -> RoundResult:
+        runs.append((name, current))
+        return RoundResult(
+            outcome=WorkflowOutcome(status="success", reason="success", step_id="send"),
+            attempts=1,
+        )
+
+    asyncio.run(
+        serve(
+            config,
+            lambda item: lambda: round_runner(item.id),
+            clock=lambda: current,
+            sleep=sleep,
+            stop=lambda: len(runs) == 3,
+        )
+    )
+    assert runs == [
+        ("second", datetime(2026, 9, 27, 23, 0, tzinfo=UTC)),
+        ("third", datetime(2026, 9, 27, 23, 0, tzinfo=UTC)),
+        ("first", datetime(2026, 9, 28, 0, 0, tzinfo=UTC)),
+    ]
