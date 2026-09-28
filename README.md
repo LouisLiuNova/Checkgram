@@ -1,6 +1,6 @@
 # Checkgram
 
-Checkgram 是一个自托管、轻量、无 Web 服务的 Telegram 多账号签到工作流运行器，适合在单台 VPS 上为约 5 个自有账号执行低频、正常的定时操作。
+Checkgram 是一个自托管的 Telegram 定时工作流运行器，适合在单台 VPS 上为少量自有账号执行低频签到等操作。无需 Web 服务或数据库。
 
 核心能力：
 
@@ -10,7 +10,74 @@ Checkgram 是一个自托管、轻量、无 Web 服务的 Telegram 多账号签�
 - TOML 工作流配置、离线校验、独立 StringSession、Docker Compose 部署；
 - Loguru 彩色日志、统一敏感信息脱敏和 GHCR 发布流水线。
 
-明确不支持 Web UI、远程 API、数据库、Redis、任务队列、执行历史、补跑、并行工作流、浏览器自动化、CAPTCHA、WebApp、支付、验证码、手机号和位置分享按钮。
+明确不支持 Web UI、远程 API、执行历史、补跑、并行工作流、浏览器自动化及需要网页或敏感按钮的操作。
+
+## 快速开始
+
+需要 Docker 和 Docker Compose。在项目根目录执行以下步骤。
+
+1. **配置 `.env`。** 在 Telegram 官方 [API development tools](https://my.telegram.org/apps) 创建客户端应用，取得 `api_id` 和 `api_hash`：
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   编辑 `.env`，将 `TELEGRAM_API_ID` 和 `TELEGRAM_API_HASH` 的占位符替换为真实值。不要提交此文件。
+
+2. **登录账号。** `primary` 是本地账号 ID；每个账号单独执行一次认证命令：
+
+   ```bash
+   docker compose run --rm checkgram auth primary
+   ```
+
+   根据终端提示输入自己的 Telegram 手机号、验证码及可选的 2FA 密码。会话保存在 Docker 命名卷的 `/data` 中，后续启动服务会复用。仓库已提供 `config.toml`，因此此时 Compose 可以挂载配置文件。
+
+3. **编辑 `config.toml`。** 修改示例工作流的 `account`、`target`、`times` 和步骤内容。`account` 填刚才认证的 `primary`；目标 Bot 使用公开用户名，例如 `@target_bot`。多账号时，先分别认证，再为每个工作流填写对应的账号 ID。配置细节见[配置参考](#配置参考)。
+
+4. **运行服务。** 先检查配置和账号会话，再启动定时任务：
+
+   ```bash
+   docker compose run --rm checkgram validate --data-dir /data
+   docker compose up -d
+   docker compose logs -f checkgram
+   ```
+
+   如需立即试跑一个工作流，可执行 `docker compose run --rm checkgram run daily-checkin`；停止服务使用 `docker compose down`，该命令不会删除会话卷。修改配置后执行 `docker compose restart checkgram` 使其生效。
+
+Compose 服务不暴露端口。容器以非 root 用户运行，根文件系统只读，仅命名卷 `/data` 可写。
+
+## 本地开发
+
+需要 Python 3.13 和 [uv](https://docs.astral.sh/uv/)。在项目根目录执行：
+
+```bash
+uv sync --locked --dev
+cp .env.example .env
+# 编辑 .env 和 config.toml 后，将 .env 导入当前 shell：
+set -a
+. ./.env
+set +a
+uv run checkgram validate --config config.toml
+uv run checkgram auth primary --data-dir ./data
+uv run checkgram validate --config config.toml --data-dir ./data
+uv run checkgram run daily-checkin --config config.toml --data-dir ./data
+uv run checkgram serve --config config.toml --data-dir ./data
+```
+
+本地 CLI 同样需要 `TELEGRAM_API_ID` 和 `TELEGRAM_API_HASH` 环境变量；`.env` 供 Docker Compose 读取，不会自动注入 `uv run checkgram`。`.env`、`data/` 和会话文件不得提交。
+
+本地质量检查与 CI 使用相同命令：
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+uv run pytest
+docker build --tag checkgram:mvp .
+docker compose -f compose.yaml config --quiet
+```
+
+自动化测试覆盖配置契约、流程图、事件隔离、按钮安全、认证/会话/锁、调度/退避/预算和日志脱敏。自动化通过不等于真实 Telegram 或正式 Release 验收；真实账号认证、一次实际工作流、重启后等待和 GHCR 拉取需要在目标 VPS/仓库环境单独记录证据。
 
 ## 运行语义
 
@@ -19,70 +86,6 @@ Checkgram 是一个自托管、轻量、无 Web 服务的 Telegram 多账号签�
 每次实际开始工作流时建立固定 1 小时截止时间。第一次失败后等待 2 分钟，随后等待 4、8、16 分钟；只有截止时间前仍有机会开始下一次尝试时才会重试。`run` 与计划任务使用相同预算，但不会改变下一次计划时间。
 
 账号只在工作流执行期间建立 Telegram 连接，成功、失败和异常都会断开。`/data` 只保存账号 StringSession 和锁文件，不保存调度状态或执行历史。
-
-## 准备凭据
-
-### Telegram API 凭据
-
-在 Telegram 官方 [API development tools](https://my.telegram.org/apps) 创建客户端应用，取得 `api_id` 和 `api_hash`。将它们写入本机未提交的 `.env`：
-
-```dotenv
-TELEGRAM_API_ID=replace_with_api_id
-TELEGRAM_API_HASH=replace_with_api_hash
-```
-
-两者是客户端应用凭据，不能写入 `config.toml`、镜像、日志或 Git。仓库中的 `.env.example` 只有占位符。
-
-### 账号认证信息
-
-执行 `auth ACCOUNT_ID` 时，Checkgram 在终端交互读取：
-
-- 手机号：用户自己的 Telegram 账号手机号；
-- 登录验证码：Telegram 官方会话或短信收到的一次性验证码；
-- 可选 2FA 密码：该账号设置的 Telegram 云密码。
-
-这些输入不会写入环境变量、配置文件、命令参数或日志。认证成功后，Telethon 生成的 StringSession 保存为 `/data/<account-id>.session`，权限为 `0600`。它不是网站申请的 token；如果泄露，应立即在 Telegram 的设备/会话管理中终止相关会话，然后删除该会话文件并重新执行认证。
-
-工作流只需要目标 Bot 的公开用户名，例如 `@target_bot`。当前项目使用用户账号操作目标 Bot，不运行自有 Telegram Bot，因此不需要、也不得要求 BotFather Bot Token。
-
-## 快速开始
-
-### 本地开发
-
-需要 Python 3.13 和 [uv](https://docs.astral.sh/uv/)。
-
-```bash
-uv sync --locked --dev
-cp .env.example .env
-
-# Edit the root config.toml with your workflow values.
-
-uv run checkgram validate --config config.toml
-uv run checkgram auth primary --data-dir ./data
-uv run checkgram validate --config config.toml --data-dir ./data
-uv run checkgram run daily-checkin --config config.toml --data-dir ./data
-uv run checkgram serve --config config.toml --data-dir ./data
-```
-
-根目录的 `config.toml` 只包含非敏感的账号和工作流配置；`.env`、`data/` 和会话文件已被 `.gitignore` 排除，不能提交 API 凭据或会话内容。
-
-### Docker Compose
-
-在项目根目录编辑仓库提供的 `config.toml`，并准备 `.env` 后：
-
-```bash
-docker compose run --rm checkgram validate
-docker compose run --rm checkgram auth primary
-docker compose run --rm checkgram validate --data-dir /data
-docker compose run --rm checkgram run daily-checkin
-docker compose up -d
-docker compose logs -f checkgram
-docker compose down
-```
-
-宿主机根目录的 `config.toml` 会挂载到容器工作目录 `/app/config.toml`，与 CLI 默认配置路径一致，因此一次性命令即使命令覆盖服务默认的 `serve` 命令，也会继续使用该配置。如果宿主机缺少 `config.toml`，Compose 会直接报错；请先编辑仓库根目录提供的示例配置。
-
-Compose 服务不暴露端口。容器以非 root 用户运行，根文件系统只读，仅命名卷 `/data` 可写；容器重建或重启不会删除该卷中的会话。默认内存上限为 256 MB，Docker 负责日志轮转。
 
 ## 配置参考
 
@@ -366,6 +369,7 @@ next = "success"
 ## 安全与日志
 
 - 每个账号使用独立的 StringSession 文件，文件权限为 `0600`；
+- StringSession 泄露时，应在 Telegram 的设备/会话管理中终止对应会话，删除会话文件并重新认证；
 - 服务锁阻止第二个 `serve` 实例，账号锁让同一账号的认证/任务串行；
 - API hash、StringSession、手机号、callback data 和完整回复不会进入日志；
 - 日志统一输出到 stdout，带 workflow、账号、attempt、step、action 和 result 上下文，文件轮转交给 Docker；
@@ -374,36 +378,6 @@ next = "success"
 
 如果出现 `FloodWait`、网络错误、超时、未匹配、按钮缺失/重复/不支持，先查看脱敏后的错误分类，再检查目标 Bot、配置、网络和账号会话。不要把 API hash、验证码、2FA 密码或 `.session` 文件贴到 Issue、日志或聊天中。
 
-## 镜像、发布与回滚
-
-GitHub Release 发布后，`release.yml` 会先执行测试、静态检查、镜像构建和 Compose 检查，再推送 `linux/amd64` 镜像到 [`ghcr.io/louisliunova/checkgram`](https://github.com/LouisLiuNova/Checkgram/pkgs/container/checkgram)。镜像标签包括：
-
-- Release 原始 tag，例如 `v1.0.0`；
-- 对应提交的 `sha-<full-commit-sha>`；
-- 稳定版额外更新 `latest`；预发布不会覆盖 `latest`。
-
-生产环境建议固定 Release tag：
-
-```yaml
-image: ghcr.io/louisliunova/checkgram:v1.0.0
-```
-
-升级前备份 `/data` 和 `config.toml`，将 tag 改为目标版本后重新拉取并启动；回滚时恢复上一个已验证的 tag。不要用 `latest` 作为无法追踪的生产依赖。
-
-## 开发、测试与许可证
-
-本地质量检查与 CI 使用相同命令：
-
-```bash
-uv sync --locked --dev
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy
-uv run pytest
-docker build --tag checkgram:mvp .
-docker compose -f compose.yaml config --quiet
-```
-
-自动化测试覆盖配置契约、流程图、事件隔离、按钮安全、认证/会话/锁、调度/退避/预算和日志脱敏。自动化通过不等于真实 Telegram 或正式 Release 验收；真实账号认证、一次实际工作流、重启后等待和 GHCR 拉取需要在目标 VPS/仓库环境单独记录证据。
+## 许可证
 
 项目使用 [GPL-3.0](LICENSE)。Issue 规划见 [v0.1.0 MVP](https://github.com/LouisLiuNova/Checkgram/issues/1)。
