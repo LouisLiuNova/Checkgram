@@ -41,7 +41,19 @@ docker run --rm checkgram:mvp --help
 - [x] 目标 VPS 已保留原配置、环境文件和会话卷，更新仓库文件到 `main`，使用固定 `v1.0.0` 镜像重建服务；会话校验通过，容器运行且重启次数为 0。升级前已备份配置和会话卷。
 - [ ] 2026-09-28 07:00（Asia/Shanghai）两个同时间工作流触发调度器排序错误，在执行前使容器崩溃；自动重启后按严格未来调度跳过当天任务。修复提交 `25ccbdf` 的临时 AMD64 镜像已部署到目标 VPS，配置和两个 session 校验通过，服务运行且重启次数为 0。原 `v1.0.0` 镜像及 Compose 文件已保留供回退；修复后的真实定时触发尚待验证，正式修复版本尚未发布。
 - [ ] 真实答题分支、失败分支和单流程峰值 RSS 尚未观察或测量。
-- [ ] 预发布不得覆盖 `latest` 的行为尚未通过实际预发布验证。
+- [x] 2026-10-12 发布测试预发布版 [v1.0.1-rc.1](https://github.com/LouisLiuNova/Checkgram/releases/tag/v1.0.1-rc.1)，验证预发布镜像可拉取且不覆盖 `latest`；完整证据见下方。
 - [ ] 按 README 的固定版本方式完成一次回滚演练。
 
-Issue #8 所要求的自动化、文档、真实账号运行、容器重启、日志与固定版本镜像启动证据已记录。剩余的可选答题、失败分支、峰值内存、预发布标签和回滚演练仍按上方清单分别追踪，不视为已通过。
+Issue #8 所要求的自动化、文档、真实账号运行、容器重启、日志与固定版本镜像启动证据已记录。剩余的可选答题、失败分支、峰值内存和回滚演练仍按上方清单分别追踪，不视为已通过。
+
+## Issue #9 预发布流水线验收
+
+2026-10-12（Asia/Shanghai）在提交 `b508353d14b0211db19bd0869d04aec4e720ece8` 上发布测试预发布版 `v1.0.1-rc.1`。该标签用于验收发布流水线，包内版本仍为 `1.0.0`，不表示正式 `1.0.1` 已发布。
+
+- 发布前：锁定依赖安装、Ruff、格式检查、mypy、68 项 pytest、Docker 构建、镜像帮助命令和 Compose 配置均通过；目标提交的远端 CI quality/image 作业通过。
+- [Release Actions #38191318832](https://github.com/LouisLiuNova/Checkgram/actions/runs/38191318832) 由 `release: published` 触发，`verify` 和 `publish` 作业均成功。
+- 实际拉取 `ghcr.io/louisliunova/checkgram:v1.0.1-rc.1` 和 `ghcr.io/louisliunova/checkgram:sha-b508353d14b0211db19bd0869d04aec4e720ece8`，两者摘要均为 `sha256:2de44051b751e501f7c0f37c8fd375593eb6e1271f04c907faacd40599e0949d`。
+- 发布前后 `latest` 摘要均为 `sha256:21d2e89ca476c586d92e524144235a592a54492d01c0b711b882c87c2b131ff0`，预发布未覆盖稳定镜像；GitHub Latest Release 仍为 `v1.0.0`。
+- 拉取镜像的 OCI source 指向本仓库，revision 与目标提交一致，version 为 `v1.0.1-rc.1`，created 为 `2026-10-12T01:18:27.904Z`，平台为 `linux/amd64`；运行镜像 `--help` 成功。
+
+本次完成 Issue #9 的预发布验收，未更换 VPS 生产镜像。真实定时运行、其他业务分支和回滚演练仍按原清单分别验收。
