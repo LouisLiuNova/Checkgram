@@ -58,7 +58,7 @@ CHECKGRAM_IMAGE_TAG=v1.0.1 docker compose ps
 
 升级前备份 `config.toml`、`.env` 和 `checkgram-data` 卷，并记录当前镜像 tag。新版本发布后，将上述命令中的 tag 换成新版本；升级后使用相同的 `CHECKGRAM_IMAGE_TAG` 执行 `docker compose run --rm checkgram validate --data-dir /data`，查看日志并确认账号会话可复用。回滚时用同样的 `pull`、`up` 命令指定原 tag，再检查服务和会话。不要执行 `docker compose down -v`，它会删除会话卷。镜像首次拉取失败时，检查 tag、GHCR 包可见性及主机网络；私有包还需要相应的读取权限。
 
-GitHub Release 采用 SemVer tag。发布工作流在 Release 进入 `published` 状态后运行验证，并向 GHCR 推送原始 tag 和 `sha-<提交 SHA>` 标签；稳定版另更新 `latest`，预发布版按工作流配置不更新 `latest`。已实测 `v1.0.0` 正式版发布和 `v1.0.1-rc.1` 预发布；预发布镜像可拉取且未覆盖 `latest`，见 [MVP 验收记录](docs/mvp-acceptance.md)。
+GitHub Release 采用 SemVer tag。发布工作流在 Release 进入 `published` 状态后运行验证，并向 GHCR 推送原始 tag 和 `sha-<提交 SHA>` 标签；稳定版另更新 `latest`，预发布版按工作流配置不更新 `latest`。已实测 `v1.0.0`、`v1.0.1` 正式版发布和 `v1.0.1-rc.1` 预发布；预发布镜像可拉取且未覆盖 `latest`。截至 2026-10-12，生产环境已固定部署 `v1.0.1`，MVP 完成定义已满足。正式镜像部署后的首次定时执行、真实答题/失败分支和回滚演练仍待验证，具体证据与完成条件见 [MVP 验收记录](docs/mvp-acceptance.md)。
 
 ## 本地开发
 
@@ -394,4 +394,4 @@ next = "success"
 
 ## 许可证
 
-项目使用 [GPL-3.0](LICENSE)。Issue 规划见 [v0.1.0 MVP](https://github.com/LouisLiuNova/Checkgram/issues/1)。
+项目使用 [GPL-3.0](LICENSE)。Issue 规划见 [v1.0.0 MVP](https://github.com/LouisLiuNova/Checkgram/issues/1)。
